@@ -1,0 +1,165 @@
+Riverdale Safaris – Authoritative Database Schema (Postgres/Supabase)
+
+Conventions
+- All tables in schema: public
+- Primary keys: uuid default gen_random_uuid()
+- Timestamps: created_at timestamptz default now()
+- Soft enums enforced with CHECK constraints on text columns where applicable
+- Nullable FKs use ON DELETE SET NULL
+
+Tables and Columns (types • nullability • defaults • constraints)
+
+1) destinations
+- id: uuid • not null • default gen_random_uuid() • primary key
+- name: text • not null
+- description: text • null
+- location: text • null
+- country: text • null
+- price_from: numeric(12,2) • null
+- duration: text • null
+- max_group_size: int • null
+- rating: numeric(3,1) • null
+- reviews_count: int • null
+- image_url: text • null
+- category: text • null
+- featured: boolean • not null • default false
+- featured_image: text • null
+- packages_count: int • null
+- status: text • not null • default 'active'
+- created_at: timestamptz • not null • default now()
+
+2) hotels
+- id: uuid • not null • default gen_random_uuid() • primary key
+- name: text • not null
+- description: text • null
+- location: text • null
+- country: text • null
+- price_per_night: numeric(12,2) • null
+- rating: numeric(3,1) • null
+- reviews_count: int • null
+- image_url: text • null
+- category: text • null
+- amenities: text[] • not null • default '{}'
+- featured: boolean • not null • default false
+- created_at: timestamptz • not null • default now()
+
+3) packages
+- id: uuid • not null • default gen_random_uuid() • primary key
+- name: text • not null
+- slug: text • null • unique
+- description: text • null
+- duration: text • null (e.g., "3 Days")
+- base_price: numeric(12,2) • null
+- rating: numeric(3,1) • null
+- best_time: text • null
+- difficulty: text • null (e.g., Easy|Moderate|Challenging)
+- max_group_size: int • null
+- images: text[] • not null • default '{}'
+- highlights: text[] • not null • default '{}'
+- itinerary: jsonb • not null • default '[]' (shape: [{day,title,description,activities[]}])
+- inclusions: text[] • not null • default '{}'
+- exclusions: text[] • not null • default '{}'
+- destination_id: uuid • null • references destinations(id) on delete set null
+- created_at: timestamptz • not null • default now()
+
+4) inquiries
+- id: uuid • not null • default gen_random_uuid() • primary key
+- verification_id: text • null • unique (format: RVD-YYYYMMDD-####)
+- customer_name: text • not null
+- customer_email: text • not null
+- customer_phone: text • not null
+- package_id: uuid • null • references packages(id) on delete set null
+- package_name: text • null
+- package_price: numeric(12,2) • null
+- preferred_start_date: date • null
+- group_size: int • null
+- special_requests: text • null
+- inquiry_status: text • not null • default 'pending' • check in ('pending','contacted','quoted','confirmed','cancelled')
+- adults: int • not null • default 0
+- children: int • not null • default 0
+- quoted_amount: numeric(12,2) • null
+- admin_notes: text • null
+- created_at: timestamptz • not null • default now()
+
+5) customer_reviews (Reviews)
+- id: uuid • not null • default gen_random_uuid() • primary key
+- package_id: uuid • null • references packages(id) on delete set null
+- customer_name: text • not null
+- customer_email: text • null
+- customer_location: text • null
+- title: text • not null
+- content: text • not null
+- rating: int • not null • check (rating between 1 and 5)
+- travel_date: date • null
+- admin_approved: boolean • not null • default false (only approved are publicly visible)
+- verified: boolean • not null • default false
+- featured: boolean • not null • default false
+- created_at: timestamptz • not null • default now()
+
+6) notification_queue
+- id: uuid • not null • default gen_random_uuid() • primary key
+- notification_type: text • not null (e.g., new_review|inquiry_received)
+- recipient_email: text • not null
+- title: text • not null
+- message: text • not null
+- review_id: uuid • null • references customer_reviews(id) on delete set null
+- created_at: timestamptz • not null • default now()
+
+7) bookings (future confirmed bookings)
+- id: uuid • not null • default gen_random_uuid() • primary key
+- inquiry_id: uuid • null • references inquiries(id) on delete set null
+- package_id: uuid • null • references packages(id) on delete set null
+- customer_name: text • null
+- customer_email: text • null
+- customer_phone: text • null
+- start_date: date • null
+- end_date: date • null
+- adults: int • not null • default 0
+- children: int • not null • default 0
+- total_amount: numeric(12,2) • null
+- status: text • not null • default 'pending' • check in ('pending','confirmed','paid','cancelled')
+- created_at: timestamptz • not null • default now()
+
+8) admin_users (role tagging)
+- user_id: uuid • not null • primary key
+- role: text • not null • default 'admin'
+- created_at: timestamptz • not null • default now()
+
+Relationships
+- packages.destination_id → destinations.id (many packages per destination)
+- inquiries.package_id → packages.id (optional link from inquiry to package)
+- customer_reviews.package_id → packages.id (optional link from review to package)
+- notification_queue.review_id → customer_reviews.id (optional link from queued notification to review)
+- bookings.inquiry_id → inquiries.id (booking may originate from an inquiry)
+- bookings.package_id → packages.id (booking references a package)
+
+Recommended Indexes (created in SQL)
+- destinations: (featured), (created_at desc), (country)
+- hotels: (featured), (created_at desc), (country)
+- packages: (destination_id)
+- customer_reviews: (package_id), (created_at desc)
+
+Row-Level Security (RLS) Policies
+- Enabled on: destinations, hotels, packages, inquiries, customer_reviews, notification_queue, bookings
+- Public read:
+  • destinations: select using (true)
+  • hotels: select using (true)
+  • packages: select using (true)
+  • customer_reviews: select using (admin_approved = true)
+- Writes on inquiries, reviews, bookings, notification_queue should be performed via service role (no anon insert/update policies defined).
+
+Seed Data (reference)
+- Countries covered: Kenya, Tanzania, Uganda, Rwanda
+- Destinations: Maasai Mara, Diani Beach, Amboseli, Serengeti, Ngorongoro, Bwindi, Akagera
+- Hotels: Representative properties per country with amenities
+- Packages: One per major destination with images, highlights, itinerary jsonb, inclusions/exclusions
+- Reviews: Approved examples linked to packages
+- Notifications: Example queue entry with recipient bknglabs.dev@gmails.com
+
+Data Contracts and Usage Notes
+- itinerary jsonb array items: { day: int, title: text, description: text, activities: text[] }
+- verification_id is generated server-side for inquiries; unique and human-readable
+- Only reviews with admin_approved = true are publicly listed; others remain internal
+- All emails should use Resend via server code and queue entries recorded in notification_queue when needed
+
+This document mirrors db/supabase_schema.sql and is the authoritative model for writing SQL migrations and seed scripts.

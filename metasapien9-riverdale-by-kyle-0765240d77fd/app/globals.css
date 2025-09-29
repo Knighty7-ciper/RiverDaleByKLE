@@ -1,0 +1,214 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Premium luxury safari color palette inspired by Beyond the Plains Safari */
+  --background: #fefbf3; /* Warm cream background */
+  --foreground: #2c1810; /* Rich dark brown text */
+  --card: #ffffff;
+  --card-foreground: #2c1810;
+  --popover: #ffffff;
+  --popover-foreground: #2c1810;
+  --primary: #8b4513; /* Rich saddle brown */
+  --primary-foreground: #fefbf3;
+  --secondary: #d2691e; /* Warm chocolate */
+  --secondary-foreground: #fefbf3;
+  --muted: #f5f1e8; /* Soft beige */
+  --muted-foreground: #6b5b4f;
+  --accent: #cd853f; /* Peru/sandy brown */
+  --accent-foreground: #2c1810;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e8dcc6; /* Warm border */
+  --input: #f5f1e8;
+  --ring: #8b4513;
+  --chart-1: #8b4513;
+  --chart-2: #d2691e;
+  --chart-3: #cd853f;
+  --chart-4: #daa520;
+  --chart-5: #b8860b;
+  --radius: 0.75rem;
+  --sidebar: #f5f1e8;
+  --sidebar-foreground: #2c1810;
+  --sidebar-primary: #8b4513;
+  --sidebar-primary-foreground: #fefbf3;
+  --sidebar-accent: #d2691e;
+  --sidebar-accent-foreground: #fefbf3;
+  --sidebar-border: #e8dcc6;
+  --sidebar-ring: #8b4513;
+  --font-playfair: "Playfair Display", serif;
+  --font-inter: "Inter", sans-serif;
+}
+
+.dark {
+  --background: #1a1611;
+  --foreground: #f5f1e8;
+  --card: #2c1810;
+  --card-foreground: #f5f1e8;
+  --popover: #2c1810;
+  --popover-foreground: #f5f1e8;
+  --primary: #d2691e;
+  --primary-foreground: #1a1611;
+  --secondary: #8b4513;
+  --secondary-foreground: #f5f1e8;
+  --muted: #3d2f1f;
+  --muted-foreground: #a69080;
+  --accent: #cd853f;
+  --accent-foreground: #1a1611;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #3d2f1f;
+  --input: #3d2f1f;
+  --ring: #d2691e;
+  --sidebar: #2c1810;
+  --sidebar-foreground: #f5f1e8;
+  --sidebar-primary: #d2691e;
+  --sidebar-primary-foreground: #1a1611;
+  --sidebar-accent: #8b4513;
+  --sidebar-accent-foreground: #f5f1e8;
+  --sidebar-border: #3d2f1f;
+  --sidebar-ring: #d2691e;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  /* Updated font variables to match new luxury fonts */
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-playfair);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+}
+
+/* Premium typography classes */
+.font-serif {
+  font-family: var(--font-serif);
+}
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+/* Luxury gradient effects */
+.luxury-gradient {
+  background: linear-gradient(135deg, #8b4513 0%, #d2691e 50%, #cd853f 100%);
+}
+
+.hero-overlay {
+  background: linear-gradient(
+    135deg,
+    rgba(139, 69, 19, 0.85) 0%,
+    rgba(210, 105, 30, 0.75) 50%,
+    rgba(205, 133, 63, 0.65) 100%
+  );
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #8b4513 0%, #d2691e 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Premium animations */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.float-animation {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Enhanced luxury card effects with more sophisticated shadows and transitions */
+.luxury-card {
+  background: linear-gradient(145deg, #ffffff 0%, #fefbf3 100%);
+  box-shadow: 0 25px 50px rgba(139, 69, 19, 0.12), 0 12px 24px rgba(139, 69, 19, 0.08), 0 4px 8px
+    rgba(139, 69, 19, 0.04);
+  border: 1px solid rgba(232, 220, 198, 0.6);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.luxury-card:hover {
+  box-shadow: 0 35px 70px rgba(139, 69, 19, 0.18), 0 18px 36px rgba(139, 69, 19, 0.12), 0 8px 16px
+    rgba(139, 69, 19, 0.06);
+  transform: translateY(-12px) scale(1.02);
+}
+
+/* Added premium button styles */
+.luxury-button {
+  background: linear-gradient(135deg, #d2691e 0%, #8b4513 100%);
+  box-shadow: 0 8px 24px rgba(139, 69, 19, 0.3);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.luxury-button:hover {
+  background: linear-gradient(135deg, #cd853f 0%, #d2691e 100%);
+  box-shadow: 0 12px 32px rgba(139, 69, 19, 0.4);
+  transform: translateY(-2px);
+}
+
+/* Added premium text effects */
+.text-luxury {
+  background: linear-gradient(135deg, #8b4513 0%, #d2691e 50%, #cd853f 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Enhanced section backgrounds */
+.section-luxury {
+  background: linear-gradient(135deg, #fefbf3 0%, #f5f1e8 100%);
+}
+
+.section-luxury-alt {
+  background: linear-gradient(135deg, #f5f1e8 0%, #e8dcc6 100%);
+}
