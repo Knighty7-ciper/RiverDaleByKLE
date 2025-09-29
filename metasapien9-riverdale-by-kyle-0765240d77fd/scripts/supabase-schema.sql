@@ -1,332 +1,320 @@
--- Supabase Schema for Riverdale East Africa Travel
--- Run this in Supabase SQL editor. Safe to re-run (uses IF NOT EXISTS where possible).
+-- 00_schema.sql
+-- Transactional schema: extensions, tables, constraints, functions, triggers, RLS (policies),
+-- sample seed rows (optional), and non-CONCURRENT indexes (only when acceptable).
+-- NOTE: Do NOT include CREATE INDEX CONCURRENTLY here. Run 01_post_indexes_non_transactional.sql after.
 
--- Required extension for UUIDs (usually enabled)
-create extension if not exists "uuid-ossp";
-create extension if not exists pgcrypto;
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- Countries (East Africa scope)
-create table if not exists public.countries (
-  id bigint generated always as identity primary key,
-  code text not null unique,
-  name text not null unique
+-- Tables (drop in correct order for idempotency if you need)
+DROP TABLE IF EXISTS audit_log CASCADE;
+DROP TABLE IF EXISTS notification_queue CASCADE;
+DROP TABLE IF EXISTS bookings CASCADE;
+DROP TABLE IF EXISTS customer_reviews CASCADE;
+DROP TABLE IF EXISTS inquiries CASCADE;
+DROP TABLE IF EXISTS packages CASCADE;
+DROP TABLE IF EXISTS admin_users CASCADE;
+DROP TABLE IF EXISTS hotels CASCADE;
+DROP TABLE IF EXISTS destinations CASCADE;
+
+-- destinations
+CREATE TABLE destinations (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name text NOT NULL,
+    description text,
+    location text,
+    country text,
+    price_from numeric(12,2),
+    duration text,
+    max_group_size int,
+    rating numeric(3,1),
+    reviews_count int NOT NULL DEFAULT 0 CHECK (reviews_count >= 0),
+    image_url text,
+    category text,
+    featured boolean NOT NULL DEFAULT false,
+    featured_image text,
+    packages_count int NOT NULL DEFAULT 0 CHECK (packages_count >= 0),
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'draft')),
+    created_at timestamptz NOT NULL DEFAULT now()
 );
 
-insert into public.countries(code, name)
-values
-  ('KE','Kenya'),
-  ('TZ','Tanzania'),
-  ('UG','Uganda'),
-  ('RW','Rwanda')
-on conflict (code) do nothing;
-
--- Profiles linked to auth.users
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  role text not null default 'user' check (role in ('admin','staff','user')),
-  created_at timestamptz not null default now()
+-- hotels
+CREATE TABLE hotels (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name text NOT NULL,
+    description text,
+    location text,
+    country text,
+    price_per_night numeric(12,2),
+    rating numeric(3,1),
+    reviews_count int NOT NULL DEFAULT 0 CHECK (reviews_count >= 0),
+    image_url text,
+    category text,
+    amenities text[] NOT NULL DEFAULT '{}',
+    featured boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Destinations
-create table if not exists public.destinations (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  slug text generated always as (regexp_replace(lower(name),'[^a-z0-9]+','-','g')) stored,
-  description text,
-  country text,
-  country_id bigint references public.countries(id),
-  location text,
-  price_from integer,
-  duration text,
-  max_group_size integer,
-  rating numeric(2,1),
-  reviews_count integer,
-  image_url text,
-  featured_image text,
-  category text,
-  featured boolean not null default false,
-  status text not null default 'active' check (status in ('active','inactive')),
-  created_at timestamptz not null default now()
-);
--- Ensure column exists on existing DBs before creating index
-alter table if exists public.destinations add column if not exists category text;
-create index if not exists idx_destinations_category on public.destinations(category);
-create index if not exists idx_destinations_featured on public.destinations(featured) where featured = true;
-
--- Packages (experiences) linked to destinations
-create table if not exists public.packages (
-  id uuid primary key default gen_random_uuid(),
-  destination_id uuid references public.destinations(id) on delete set null,
-  name text not null,
-  slug text generated always as (regexp_replace(lower(name),'[^a-z0-9]+','-','g')) stored,
-  description text,
-  duration text,
-  base_price integer,
-  rating numeric(2,1),
-  best_time text,
-  difficulty text,
-  max_group_size integer,
-  images jsonb,
-  highlights text[],
-  itinerary jsonb,
-  inclusions text[],
-  exclusions text[],
-  created_at timestamptz not null default now()
-);
-create index if not exists idx_packages_destination on public.packages(destination_id);
-
--- Hotels/Lodges
-create table if not exists public.hotels (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  slug text generated always as (regexp_replace(lower(name),'[^a-z0-9]+','-','g')) stored,
-  description text,
-  location text,
-  country text,
-  price_per_night integer,
-  rating numeric(2,1),
-  reviews_count integer,
-  category text,
-  amenities text[],
-  image_url text,
-  featured boolean not null default false,
-  created_at timestamptz not null default now()
-);
--- Ensure column exists on existing DBs before creating index
-alter table if exists public.hotels add column if not exists category text;
-create index if not exists idx_hotels_featured on public.hotels(featured) where featured = true;
-
--- Backfill handled above before index creation
-
--- Inquiries
-do $$
-begin
-  create type inquiry_status as enum ('pending','contacted','quoted','confirmed','cancelled');
-exception when duplicate_object then
-  null;
-end $$;
-
-create table if not exists public.inquiries (
-  id uuid primary key default gen_random_uuid(),
-  verification_id text not null unique,
-  customer_name text not null,
-  customer_email text not null,
-  customer_phone text not null,
-  package_id uuid references public.packages(id) on delete set null,
-  package_name text,
-  package_price integer,
-  adults integer default 0,
-  children integer default 0,
-  preferred_start_date date,
-  group_size integer,
-  special_requests text,
-  admin_notes text,
-  quoted_amount integer,
-  inquiry_status inquiry_status not null default 'pending',
-  created_at timestamptz not null default now()
-);
--- Ensure column exists on existing DBs before index creation
-alter table if exists public.inquiries add column if not exists inquiry_status inquiry_status not null default 'pending';
-create index if not exists idx_inquiries_status on public.inquiries(inquiry_status);
-create index if not exists idx_inquiries_created on public.inquiries(created_at desc);
-
--- Customer Reviews
-create table if not exists public.customer_reviews (
-  id uuid primary key default gen_random_uuid(),
-  package_id uuid references public.packages(id) on delete set null,
-  customer_name text not null,
-  customer_email text not null,
-  customer_location text,
-  title text not null,
-  content text not null,
-  rating integer not null check (rating between 1 and 5),
-  travel_date date,
-  admin_approved boolean not null default false,
-  verified boolean not null default false,
-  featured boolean not null default false,
-  created_at timestamptz not null default now()
-);
-create index if not exists idx_reviews_pkg on public.customer_reviews(package_id);
-create index if not exists idx_reviews_approved on public.customer_reviews(admin_approved) where admin_approved = true;
-
--- Notification Queue
-create table if not exists public.notification_queue (
-  id bigint generated always as identity primary key,
-  notification_type text not null,
-  recipient_email text not null,
-  title text,
-  message text,
-  review_id uuid references public.customer_reviews(id) on delete set null,
-  created_at timestamptz not null default now(),
-  processed_at timestamptz
+-- packages
+CREATE TABLE packages (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name text NOT NULL,
+    slug text UNIQUE,
+    description text,
+    duration text,
+    base_price numeric(12,2),
+    rating numeric(3,1),
+    best_time text,
+    difficulty text CHECK (difficulty IN ('Easy', 'Moderate', 'Challenging', 'Expert')),
+    max_group_size int,
+    images text[] NOT NULL DEFAULT '{}',
+    highlights text[] NOT NULL DEFAULT '{}',
+    itinerary jsonb NOT NULL DEFAULT '[]'::jsonb,
+    inclusions text[] NOT NULL DEFAULT '{}',
+    exclusions text[] NOT NULL DEFAULT '{}',
+    destination_id uuid REFERENCES destinations(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- RLS: enable and add policies
-alter table public.destinations enable row level security;
-alter table public.packages enable row level security;
-alter table public.hotels enable row level security;
-alter table public.inquiries enable row level security;
-alter table public.customer_reviews enable row level security;
-alter table public.notification_queue enable row level security;
-alter table public.profiles enable row level security;
+-- inquiries
+CREATE TABLE inquiries (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    verification_id text UNIQUE,
+    customer_name text NOT NULL,
+    customer_email text NOT NULL,
+    customer_phone text NOT NULL,
+    package_id uuid REFERENCES packages(id) ON DELETE SET NULL,
+    package_name text,
+    package_price numeric(12,2),
+    preferred_start_date date,
+    group_size int,
+    special_requests text,
+    inquiry_status text NOT NULL DEFAULT 'pending' CHECK (inquiry_status IN ('pending', 'contacted', 'quoted', 'confirmed', 'cancelled')),
+    adults int NOT NULL DEFAULT 0 CHECK (adults >= 0),
+    children int NOT NULL DEFAULT 0 CHECK (children >= 0),
+    quoted_amount numeric(12,2),
+    admin_notes text,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
 
--- Public read policies for read-only content
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='destinations' and policyname='destinations_read'
-  ) then
-    create policy "destinations_read" on public.destinations for select using (true);
-  end if;
-end $$;
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='packages' and policyname='packages_read'
-  ) then
-    create policy "packages_read" on public.packages for select using (true);
-  end if;
-end $$;
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='hotels' and policyname='hotels_read'
-  ) then
-    create policy "hotels_read" on public.hotels for select using (true);
-  end if;
-end $$;
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='customer_reviews' and policyname='reviews_read_public'
-  ) then
-    create policy "reviews_read_public" on public.customer_reviews for select using (admin_approved = true);
-  end if;
-end $$;
+-- customer_reviews
+CREATE TABLE customer_reviews (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    package_id uuid REFERENCES packages(id) ON DELETE SET NULL,
+    customer_name text NOT NULL,
+    customer_email text,
+    customer_location text,
+    title text NOT NULL,
+    content text NOT NULL,
+    rating int NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    travel_date date,
+    admin_approved boolean NOT NULL DEFAULT false,
+    verified boolean NOT NULL DEFAULT false,
+    featured boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
 
--- Write restricted to admins (checked via JWT; fallback is service role bypass)
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='destinations' and policyname='destinations_write_admin'
-  ) then
-    create policy "destinations_write_admin" on public.destinations
-      for all using (
-        exists (
-          select 1 from public.profiles p
-          where p.id = auth.uid() and p.role in ('admin','staff')
-        )
-      ) with check (
-        exists (
-          select 1 from public.profiles p
-          where p.id = auth.uid() and p.role in ('admin','staff')
-        )
-      );
-  end if;
-end $$;
+-- notification_queue
+CREATE TABLE notification_queue (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    notification_type text NOT NULL CHECK (notification_type IN ('new_review', 'inquiry_received', 'booking_confirmed', 'payment_received')),
+    recipient_email text NOT NULL,
+    title text NOT NULL,
+    message text NOT NULL,
+    review_id uuid REFERENCES customer_reviews(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
 
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='packages' and policyname='packages_write_admin'
-  ) then
-    create policy "packages_write_admin" on public.packages
-      for all using (
-        exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff'))
-      ) with check (
-        exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff'))
-      );
-  end if;
-end $$;
+-- bookings
+CREATE TABLE bookings (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    inquiry_id uuid REFERENCES inquiries(id) ON DELETE SET NULL,
+    package_id uuid REFERENCES packages(id) ON DELETE SET NULL,
+    customer_name text,
+    customer_email text,
+    customer_phone text,
+    start_date date,
+    end_date date,
+    adults int NOT NULL DEFAULT 0 CHECK (adults >= 0),
+    children int NOT NULL DEFAULT 0 CHECK (children >= 0),
+    total_amount numeric(12,2),
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'paid', 'cancelled', 'completed')),
+    created_at timestamptz NOT NULL DEFAULT now()
+);
 
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='hotels' and policyname='hotels_write_admin'
-  ) then
-    create policy "hotels_write_admin" on public.hotels
-      for all using (
-        exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff'))
-      ) with check (
-        exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff'))
-      );
-  end if;
-end $$;
+-- admin_users
+CREATE TABLE admin_users (
+    user_id uuid PRIMARY KEY,
+    role text NOT NULL DEFAULT 'admin' CHECK (role IN ('admin', 'super_admin', 'manager')),
+    created_at timestamptz NOT NULL DEFAULT now()
+);
 
--- Inquiries: allow inserts from anon, read/write for admins
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='inquiries' and policyname='inquiries_insert_public'
-  ) then
-    create policy "inquiries_insert_public" on public.inquiries for insert with check (true);
-  end if;
-end $$;
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='inquiries' and policyname='inquiries_read_admin'
-  ) then
-    create policy "inquiries_read_admin" on public.inquiries
-      for select using (
-        exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff'))
-      );
-  end if;
-end $$;
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='inquiries' and policyname='inquiries_update_admin'
-  ) then
-    create policy "inquiries_update_admin" on public.inquiries
-      for update using (
-        exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff'))
-      ) with check (
-        exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff'))
-      );
-  end if;
-end $$;
+-- audit_log
+CREATE TABLE IF NOT EXISTS audit_log (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    table_name text NOT NULL,
+    record_id uuid,
+    action text NOT NULL CHECK (action IN ('INSERT', 'UPDATE', 'DELETE')),
+    old_values jsonb,
+    new_values jsonb,
+    user_id uuid,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
 
--- Reviews: public can insert; admin approves
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='customer_reviews' and policyname='reviews_insert_public'
-  ) then
-    create policy "reviews_insert_public" on public.customer_reviews for insert with check (true);
-  end if;
-end $$;
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='customer_reviews' and policyname='reviews_update_admin'
-  ) then
-    create policy "reviews_update_admin" on public.customer_reviews
-      for update using (
-        exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff'))
-      ) with check (
-        exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff'))
-      );
-  end if;
-end $$;
+-- FUNCTIONS & TRIGGERS
 
--- Profiles: only owner or admin can read/update
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='profiles' and policyname='profiles_self_read'
-  ) then
-    create policy "profiles_self_read" on public.profiles for select using (auth.uid() = id);
-  end if;
-end $$;
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='profiles' and policyname='profiles_admin_read'
-  ) then
-    create policy "profiles_admin_read" on public.profiles for select using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','staff')));
-  end if;
-end $$;
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='profiles' and policyname='profiles_self_upsert'
-  ) then
-    create policy "profiles_self_upsert" on public.profiles for insert with check (auth.uid() = id);
-  end if;
-end $$;
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname='public' and tablename='profiles' and policyname='profiles_self_update'
-  ) then
-    create policy "profiles_self_update" on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);
-  end if;
-end $$;
+-- generate_verification_id: safer implementation using advisory lock to avoid race conditions
+CREATE OR REPLACE FUNCTION generate_verification_id()
+RETURNS TRIGGER AS $$
+DECLARE
+    today_date text := to_char(CURRENT_DATE, 'YYYYMMDD');
+    seq_id bigint;
+    new_verification_id text;
+BEGIN
+    -- Use an advisory lock for sequence generation per day (key derived from date)
+    PERFORM pg_advisory_xact_lock(hashtext('verification_id_' || today_date));
 
--- Helpers: ensure an admin user (run manually once with your user id)
--- insert into public.profiles(id, role) values ('<your-auth-user-id>', 'admin') on conflict (id) do update set role='admin';
+    SELECT COALESCE(MAX(CAST(SPLIT_PART(verification_id, '-', 3) AS INTEGER)), 0)
+    INTO seq_id
+    FROM inquiries
+    WHERE verification_id LIKE 'RVD-' || today_date || '-%';
+
+    seq_id := seq_id + 1;
+    new_verification_id := 'RVD-' || today_date || '-' || LPAD(seq_id::text, 4, '0');
+
+    NEW.verification_id := new_verification_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+
+DROP TRIGGER IF EXISTS trigger_generate_verification_id ON inquiries;
+CREATE TRIGGER trigger_generate_verification_id
+    BEFORE INSERT ON inquiries
+    FOR EACH ROW
+    WHEN (NEW.verification_id IS NULL)
+    EXECUTE FUNCTION generate_verification_id();
+
+-- update_destination_packages_count: defensive version preventing negative counts and NULL destination_id handling
+CREATE OR REPLACE FUNCTION update_destination_packages_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.destination_id IS NOT NULL THEN
+            UPDATE destinations SET packages_count = COALESCE(packages_count,0) + 1 WHERE id = NEW.destination_id;
+        END IF;
+    ELSIF TG_OP = 'DELETE' THEN
+        IF OLD.destination_id IS NOT NULL THEN
+            UPDATE destinations SET packages_count = GREATEST(COALESCE(packages_count,0) - 1, 0) WHERE id = OLD.destination_id;
+        END IF;
+    ELSIF TG_OP = 'UPDATE' THEN
+        IF OLD.destination_id IS DISTINCT FROM NEW.destination_id THEN
+            IF OLD.destination_id IS NOT NULL THEN
+                UPDATE destinations SET packages_count = GREATEST(COALESCE(packages_count,0) - 1, 0) WHERE id = OLD.destination_id;
+            END IF;
+            IF NEW.destination_id IS NOT NULL THEN
+                UPDATE destinations SET packages_count = COALESCE(packages_count,0) + 1 WHERE id = NEW.destination_id;
+            END IF;
+        END IF;
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_packages_count ON packages;
+CREATE TRIGGER trigger_update_packages_count
+    AFTER INSERT OR UPDATE OR DELETE ON packages
+    FOR EACH ROW
+    EXECUTE FUNCTION update_destination_packages_count();
+
+-- Simple audit trigger for key tables (example: packages)
+CREATE OR REPLACE FUNCTION audit_changes()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO audit_log(table_name, record_id, action, new_values, user_id)
+        VALUES (TG_TABLE_NAME, NEW.id, 'INSERT', to_jsonb(NEW), NULL);
+        RETURN NEW;
+    ELSIF TG_OP = 'UPDATE' THEN
+        INSERT INTO audit_log(table_name, record_id, action, old_values, new_values, user_id)
+        VALUES (TG_TABLE_NAME, NEW.id, 'UPDATE', to_jsonb(OLD), to_jsonb(NEW), NULL);
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        INSERT INTO audit_log(table_name, record_id, action, old_values, user_id)
+        VALUES (TG_TABLE_NAME, OLD.id, 'DELETE', to_jsonb(OLD), NULL);
+        RETURN OLD;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Attach audit trigger to packages (extend to other tables as desired)
+DROP TRIGGER IF EXISTS trigger_audit_packages ON packages;
+CREATE TRIGGER trigger_audit_packages
+    AFTER INSERT OR UPDATE OR DELETE ON packages
+    FOR EACH ROW
+    EXECUTE FUNCTION audit_changes();
+
+-- RLS: Enable on tables
+ALTER TABLE destinations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hotels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE packages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inquiries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customer_reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notification_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies
+
+-- Public read: only active destinations, hotels and packages visible
+CREATE POLICY "public_read_destinations" ON destinations FOR SELECT USING (status = 'active');
+CREATE POLICY "public_read_hotels" ON hotels FOR SELECT USING (true);
+CREATE POLICY "public_read_packages" ON packages FOR SELECT USING (true);
+CREATE POLICY "public_read_reviews" ON customer_reviews FOR SELECT USING (admin_approved = true);
+
+-- Public insert for inquiries & reviews but validate via WITH CHECK to reduce spoof/bad data
+CREATE POLICY "public_insert_inquiries" ON inquiries FOR INSERT WITH CHECK (
+    customer_name IS NOT NULL AND customer_email IS NOT NULL
+);
+CREATE POLICY "public_insert_reviews" ON customer_reviews FOR INSERT WITH CHECK (
+    customer_name IS NOT NULL AND rating BETWEEN 1 AND 5 AND title IS NOT NULL AND content IS NOT NULL
+);
+
+-- Admin full access: use an explicit helper that checks admin_users table
+-- helper function to check admin membership (stable, security definer)
+CREATE OR REPLACE FUNCTION is_admin(user_uuid uuid) RETURNS boolean
+LANGUAGE sql SECURITY DEFINER AS $$
+    SELECT EXISTS (SELECT 1 FROM admin_users WHERE user_id = user_uuid);
+$$;
+
+REVOKE EXECUTE ON FUNCTION is_admin(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION is_admin(uuid) TO authenticated;
+
+-- Admin policies using helper
+CREATE POLICY "admin_all_destinations" ON destinations FOR ALL USING (is_admin(auth.uid()));
+CREATE POLICY "admin_all_hotels" ON hotels FOR ALL USING (is_admin(auth.uid()));
+CREATE POLICY "admin_all_packages" ON packages FOR ALL USING (is_admin(auth.uid()));
+CREATE POLICY "admin_all_inquiries" ON inquiries FOR ALL USING (is_admin(auth.uid()));
+CREATE POLICY "admin_all_reviews" ON customer_reviews FOR ALL USING (is_admin(auth.uid()));
+CREATE POLICY "admin_all_bookings" ON bookings FOR ALL USING (is_admin(auth.uid()));
+CREATE POLICY "admin_all_notifications" ON notification_queue FOR ALL USING (is_admin(auth.uid()));
+CREATE POLICY "admin_all_admin_users" ON admin_users FOR ALL USING (is_admin(auth.uid()));
+
+-- Optional sample seed data: insert core destinations & hotels (you included these as real data)
+-- It's safer to insert AFTER RLS policies are set and when run by a privileged user (service_role)
+-- Consider running the seed step using service_role or separately in migration pipeline.
+
+-- ADMIN USER INSERT (run after auth.users exists and as a privileged user)
+-- The following is idempotent and will update role if present.
+INSERT INTO admin_users (user_id, role)
+SELECT u.id, 'super_admin' FROM auth.users u WHERE u.email = 'bknglabs.dev@gmail.com'
+ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
+
+-- Non-concurrent index examples (safe inside a transaction only if you accept locks):
+-- NOTE: If you want zero-downtime, do NOT create these here; instead create them in the non-transactional file using CONCURRENTLY.
+CREATE INDEX IF NOT EXISTS idx_destinations_country ON destinations(country);
+CREATE INDEX IF NOT EXISTS idx_packages_destination_id ON packages(destination_id);
+CREATE INDEX IF NOT EXISTS idx_packages_slug ON packages(slug);
+
+-- End of transactional schema file
